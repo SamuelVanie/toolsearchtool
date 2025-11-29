@@ -30,8 +30,45 @@
 
 ;;; Code:
 
-(message "Hello World!")
+(require 'gptel)
+(eval-when-compile (require 'cl-lib))
 
-(provide 'name)
+;;; The embeddings values for the different tools
+(defvar toolsearchtool--embeddings nil)
 
-;;; name.el ends here
+(defun toolsearchtool--get-embedding (tool)
+  "Get the embedding vector of a tool.
+The tool description is built using `toolsearchtool--build-message'"
+  )
+
+(defun toolsearchtool--build-string (tool)
+  "Build the description of the tool.
+The tool structure is gotten from the variable `gptel--known-tools'"
+  (let ((tool-name (first tool))
+	(tool-struct (rest tool)))
+    (concat
+     (format "Tool: %s\n" tool-name)
+     (format "Category: %s\n" (gptel-tool-category tool-struct))
+     (format "Description: %s\n" (gptel-tool-description tool-struct))
+     (format "Parameters: ")
+     (mapconcat (lambda (param)
+		  (format "%s (%s): %s"
+			  (plist-get param :name)
+			  (plist-get param :type)
+			  (plist-get param :description)))
+		(gptel-tool-args tool-struct) ",")
+     )
+    )
+  )
+    
+
+(defun toolsearchtool--get-tools-suggestion ()
+  "Call the embedding model from the url defined by the user then calculate
+the cosine similarity to get the appropriate
+tools that will be returned to the model"
+  
+  )
+
+(provide 'tool-search-tool)
+
+;;; tool-search-tool.el ends here

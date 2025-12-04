@@ -72,6 +72,7 @@ Returns a value between -1 and 1, where 1 means identical direction."
   :group 'toolsearchtool)
 
 (defcustom toolsearchtool-number-of-results 4
+  "The number of tools to return to the llm after the query"
   :type 'number
   :group 'toolsearchtool)
 
@@ -257,7 +258,7 @@ appropriate tools to be selected for the query."
 
   ;; get the first n tools
   ;; n defined by a custom variable
-  
+  (take toolsearchtool-number-of-results toolsearchtool--cosine-similarities)
   )
 
 (provide 'tool-search-tool)

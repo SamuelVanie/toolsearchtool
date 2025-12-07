@@ -122,12 +122,16 @@ Check out my default implementation for gptel `toolsearchtool--default-get-avail
   :type 'function
   :group 'toolsearchtool)
 
-(defcustom toolsearchtool--select-tools #'toolsearchtool--default-select-tool
-  "A function that will be the logic for the tool used by the llm to choose
-the appropriate tool"
+(defcustom toolsearchtool--select-tools #'toolsearchtool--default-select-tools
+  "The tool that the llm will use to add a new tool to the list of tools."
   :type 'function
   :group 'toolsearchtool)
 
+
+(defcustom toolsearchtool--remove-tools #'toolsearchtool--default-remove-tools
+  "The tool that the llm will use to delete a tool from the list of tools."
+  :type 'function
+  :group 'toolsearchtool)
 
 (defun toolsearchtool--default-get-available-tools ()
   "For gptel all, the known tools are stored inside the `gptel--known-tools' variable.
@@ -255,8 +259,10 @@ The tool structure is the one from `gptel--known-tools'"
     )
 
 
-(defun toolsearchtool--default-select-tool (list)
-  "The list of tools to select, will be added to the current list"
+(defun toolsearchtool--default-select-tools (list)
+  "Add tools to the list of tools to be used by the llm.
+This is the default gptel implementation that could be customized through the
+variable `toolsearchtool--select-tools'"
   (let ((tools (funcall toolsearchtool--get-available-tools))
 	)
     (cl-loop for tool in list
@@ -272,9 +278,15 @@ The tool structure is the one from `gptel--known-tools'"
     )
   )
 
-(defun toolsearchtool--remove-tool (names)
-  "The list of tools to remove from the list"
-  
+(defun toolsearchtool--default-remove-tools (names)
+  "Remove a tool from the tool list.
+This is the default gptel implementation. See the variable
+`toolsearchtool--remove-tools'"
+  (cl-loop for name in names
+	   do (setq gptel-tools (seq-filter
+				 (lambda (x) (not (string= (gptel-tool-name x) name)))
+				 gptel-tools))
+	   )
   )
 
 

@@ -213,11 +213,11 @@ embedding for one tool."
 		 (y-or-n-p "Recompute all the embedding values ?")))
     (setq toolsearchtool--embedding-values
 	  (cl-loop for (toolname . toolstruct) in (funcall toolsearchtool--get-available-tools)
-	     collect (cons toolname
-			  (toolsearchtool--get-embedding
-			   (toolsearchtool--build-string toolstruct)
-			   ))
-	     )
+		   collect (cons toolname
+				 (toolsearchtool--get-embedding
+				  (toolsearchtool--build-string toolstruct)
+				  ))
+		   )
 	  )
     (toolsearchtool--save-embeddings)
     )
@@ -245,19 +245,19 @@ vectors' values in the variable `toolsearchtool--embedding-values'"
 (defun toolsearchtool--build-string (toolstruct)
   "Build the description of the tool.
 The tool structure is the one from `gptel--known-tools'"
-    (concat
-     (format "Tool: %s\n" (gptel-tool-name toolstruct))
-     (format "Category: %s\n" (gptel-tool-category toolstruct))
-     (format "Description: %s\n" (gptel-tool-description toolstruct))
-     (format "Parameters: ")
-     (mapconcat (lambda (param)
-		  (format "%s (%s): %s"
-			  (plist-get param :name)
-			  (plist-get param :type)
-			  (plist-get param :description)))
-		(gptel-tool-args toolstruct) ",")
-     )
-    )
+  (concat
+   (format "Tool: %s\n" (gptel-tool-name toolstruct))
+   (format "Category: %s\n" (gptel-tool-category toolstruct))
+   (format "Description: %s\n" (gptel-tool-description toolstruct))
+   (format "Parameters: ")
+   (mapconcat (lambda (param)
+		(format "%s (%s): %s"
+			(plist-get param :name)
+			(plist-get param :type)
+			(plist-get param :description)))
+	      (gptel-tool-args toolstruct) ",")
+   )
+  )
 
 
 (defun toolsearchtool--default-select-tools (list)
@@ -265,23 +265,23 @@ The tool structure is the one from `gptel--known-tools'"
 This is the default gptel implementation that could be customized through the
 variable `toolsearchtool--select-tools'"
   (message "Calling the select function for : %s" (first list))
-  (let ((tools (funcall toolsearchtool--get-available-tools))
-	)
+  (let ((tools (funcall toolsearchtool--get-available-tools)))
     (cl-loop for tool in list
-	     do (let ((toolstruct (assoc tool tools))
-		      )
-		  (if toolstruct
-		      (progn
-			(setq gptel-tools (cons (rest toolstruct) gptel-tools))
-			)
-		    )
-		  )
-	     )
+             do (let ((toolstruct (assoc tool tools)))
+                  (if toolstruct
+                      (unless (member (rest toolstruct) gptel-tools)
+                        (setq gptel-tools (cons (rest toolstruct) gptel-tools))))))
     )
-  (gptel-abort (current-buffer))
-  (end-of-buffer)
-  (gptel-send)
-  )
+  
+  (let ((gptel-buffer (cl-find-if (lambda (buf)
+                                    (and (ignore-errors (buffer-local-value 'gptel-mode buf))))
+                                  (buffer-list))))
+    (when gptel-buffer
+      (with-current-buffer gptel-buffer
+        (gptel-abort gptel-buffer)
+        (end-of-buffer)
+        (gptel-send))))
+  (format "List of tools successfully addded : %s" (mapconcat 'identity list "\n")))
 
 (defun toolsearchtool--default-remove-tools (names)
   "Remove a tool from the tool list.
@@ -292,9 +292,15 @@ This is the default gptel implementation. See the variable
 				 (lambda (x) (not (string= (gptel-tool-name x) name)))
 				 gptel-tools))
 	   )
-  (gptel-abort (current-buffer))
-  (end-of-buffer)
-  (gptel-send)
+  (let ((gptel-buffer (cl-find-if (lambda (buf)
+				    (and (ignore-errors (buffer-local-value 'gptel-mode buf))))
+				  (buffer-list))))
+    (when gptel-buffer
+      (with-current-buffer gptel-buffer
+	(gptel-abort gptel-buffer)
+	(end-of-buffer)
+	(gptel-send))))
+  (format "List of tools successfully removed : %s" (mapconcat 'identity names "\n"))
   )
 
 

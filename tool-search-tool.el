@@ -5,7 +5,7 @@
 ;; Version: 1.0
 ;; Package-Requires: (gptel)
 ;; Homepage: homepage
-;; Keywords: keywords
+;; Keywords: tools, ai
 
 
 ;; This file is not part of GNU Emacs
@@ -177,6 +177,7 @@ This function is synchronous and blocks until the request completes."
             (kill-buffer buffer)
             (error "Invalid response headers")))))))
 
+
 (defun toolsearchtool-compute-embedding (toolname)
   "Calculate the embedding value for a tool.
 The user just have to give the name of the tool.  This function is
@@ -263,6 +264,7 @@ The tool structure is the one from `gptel--known-tools'"
   "Add tools to the list of tools to be used by the llm.
 This is the default gptel implementation that could be customized through the
 variable `toolsearchtool--select-tools'"
+  (message "Calling the select function for : %s" (first list))
   (let ((tools (funcall toolsearchtool--get-available-tools))
 	)
     (cl-loop for tool in list
@@ -310,6 +312,47 @@ appropriate tools to be selected for the query."
   ;; n defined by a custom variable
   (take toolsearchtool-number-of-results toolsearchtool--cosine-similarities)
   )
+
+(gptel-make-tool
+ :name "tool_search"
+ :function #'toolsearchtool--get-tools-suggestion
+ :description "Search for available tools that can help with a task. Returns tool
+definitions for matching tools. Use this when you need a tool but don't
+have it available yet."
+ :include t
+ :args (list '(:name "query"
+                     :type string
+		     :description "Describe the task you're looking for"))
+ :category "tool_management")
+
+(gptel-make-tool
+ :name "select_tools"
+ :function (lambda (list)
+             (funcall toolsearchtool--select-tools (append list nil)))
+ :description "Add tools to your current workspace. Use this after you've searched for
+the appropriate tools using tool_search."
+ :include t
+ :args (list '(:name "list"
+		     :type array
+		     :items (:type string)
+		     :description "The list of tools to add"))
+ :category "tool_management"
+ )
+
+(gptel-make-tool
+ :name "remove_tools"
+ :function (lambda (list)
+	     (funcall toolsearchtool--remove-tools (append list nil)))
+ :description "Remove tools from the current workspace. Use this when you no more needs
+those tools for the next task."
+ :include t
+ :args (list '(:name "list"
+		     :type array
+		     :items (:type string)
+		     :description "The list of tools to remove"))
+ :category "tool_management"
+ )
+
 
 (provide 'tool-search-tool)
 

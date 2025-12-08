@@ -264,7 +264,6 @@ The tool structure is the one from `gptel--known-tools'"
   "Add tools to the list of tools to be used by the llm.
 This is the default gptel implementation that could be customized through the
 variable `toolsearchtool--select-tools'"
-  (message "Calling the select function for : %s" (first list))
   (let ((tools (funcall toolsearchtool--get-available-tools)))
     (cl-loop for tool in list
              do (let ((toolstruct (assoc tool tools)))

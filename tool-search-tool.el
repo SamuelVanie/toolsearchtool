@@ -35,7 +35,6 @@
 (require 'url)
 (require 'json)
 
-
 (defun dot-product (vec1 vec2)
   "Calculate dot product of VEC1 and VEC2."
   (apply #'+ (cl-mapcar #'* vec1 vec2)))
@@ -147,41 +146,52 @@ tied to gptel, check the customize group `toolsearchtool--embedding'"
 	   )
   )
 
-(defun toolsearchtool--get-embedding (text)
-  "Send TEXT to the configured embedding endpoint and return the vector.
-This function is synchronous and blocks until the request completes."
+
+(defun toolsearchtool--get-embedding (text callback)
+  "Send TEXT to the configured embedding endpoint asynchronously.
+CALLBACK is called with the embedding vector when the request completes,
+or with nil if the request fails. Shows progress messages in minibuffer."
   (let ((url-request-method "POST")
         (url-request-extra-headers
          '(("Content-Type" . "application/json")))
         (url-request-data
          (json-encode `((input . ,text)
                         (model . ,toolsearchtool-embedding-model)))))
-    
-    (let ((buffer (url-retrieve-synchronously toolsearchtool-embedding-endpoint)))
-      (if (not buffer)
-          (error "Failed to retrieve embedding: Connection failed")
-        (with-current-buffer buffer
-          (goto-char (point-min))
-          (if (search-forward "\n\n" nil t)
-              (let* ((json-object-type 'plist) ;; Ensure we get plists
-                     (json-array-type 'list)
-                     (response (json-read))
-                     ;; Parse: response -> data -> [0] -> embedding
-                     (data (plist-get response :data))
-                     (first-item (car data))
-                     (embedding (plist-get first-item :embedding)))
-                (kill-buffer buffer)
-                (unless embedding
-                  (error "Response did not contain an embedding field: %S" response))
-                embedding)
-            (kill-buffer buffer)
-            (error "Invalid response headers")))))))
+    (url-retrieve
+     toolsearchtool-embedding-endpoint
+     (lambda (status)
+       (unwind-protect
+           (if (plist-get status :error)
+               ;; Handle error case
+               (progn
+                 (message "Embedding request failed: %S" (plist-get status :error))
+                 (funcall callback nil))
+             ;; Handle success case
+             (goto-char (point-min))
+             (if (search-forward "\n\n" nil t)
+                 (condition-case err
+                     (let* ((json-object-type 'plist)
+                            (json-array-type 'list)
+                            (response (json-read))
+                            (data (plist-get response :data))
+                            (first-item (car data))
+                            (embedding (plist-get first-item :embedding)))
+                       (if embedding
+                           (funcall callback embedding)
+                         (message "Response did not contain an embedding field")
+                         (funcall callback nil)))
+                   (error
+                    (message "Error parsing response: %S" err)
+                    (funcall callback nil)))
+               (message "Invalid response headers")
+               (funcall callback nil)))
+         (kill-buffer (current-buffer)))))))
 
 
 (defun toolsearchtool-compute-embedding (toolname)
   "Calculate the embedding value for a tool.
-The user just have to give the name of the tool.  This function is
-intended to be called by the user after he register a new tool.  Could
+The user just have to give the name of the tool. This function is
+intended to be called by the user after he register a new tool. Could
 also be called if for some reason the user wants to recalculate
 embedding for one tool."
   (interactive
@@ -200,28 +210,48 @@ embedding for one tool."
     (when (and (map-contains-key toolsearchtool--embedding-values tool-symbol)
                (not (y-or-n-p (format "Embedding for %s already exists. Recompute? " tool-symbol))))
       (user-error "Aborted recomputation of embedding"))
-    (let ((vector (toolsearchtool--get-embedding (toolsearchtool--build-string tool-struct))))
-      (setf (alist-get tool-symbol toolsearchtool--embedding-values) vector)
-      (message "Embedding updated for %s" tool-symbol))))
+    (message "Computing embedding for %s..." tool-symbol)
+    (toolsearchtool--get-embedding
+     (toolsearchtool--build-string tool-struct)
+     (lambda (vector)
+       (if vector
+           (progn
+             (setf (alist-get tool-symbol toolsearchtool--embedding-values) vector)
+             (message "Embedding updated for %s" tool-symbol))
+         (message "Failed to compute embedding for %s" tool-symbol))))))
+
+
 
 ;;;###autoload
 (defun toolsearchtool-compute-all-embedding ()
   "Get all the tools available then compute their embedding values and save them."
   (interactive)
   (when (or (not toolsearchtool--embedding-values)
-	    (and toolsearchtool--embedding-values
-		 (y-or-n-p "Recompute all the embedding values ?")))
-    (setq toolsearchtool--embedding-values
-	  (cl-loop for (toolname . toolstruct) in (funcall toolsearchtool--get-available-tools)
-		   collect (cons toolname
-				 (toolsearchtool--get-embedding
-				  (toolsearchtool--build-string toolstruct)
-				  ))
-		   )
-	  )
-    (toolsearchtool--save-embeddings)
-    )
-  )
+            (and toolsearchtool--embedding-values
+                 (y-or-n-p "Recompute all the embedding values ?")))
+    (let* ((all-tools (funcall toolsearchtool--get-available-tools))
+           (total (length all-tools))
+           (completed 0)
+           (results nil))
+      (message "Computing embeddings for %d tools..." total)
+      
+      (dolist (tool-pair all-tools)
+        (let ((toolname (first tool-pair))
+              (toolstruct (rest tool-pair)))
+          (toolsearchtool--get-embedding
+           (toolsearchtool--build-string toolstruct)
+           (lambda (embedding)
+             (setq completed (1+ completed))
+             (when embedding
+               (push (cons toolname embedding) results))
+             (message "Progress: %d/%d tools completed" completed total)
+             
+             ;; When all requests are done, save results
+             (when (= completed total)
+               (setq toolsearchtool--embedding-values (nreverse results))
+               (toolsearchtool--save-embeddings)
+               (message "All embeddings computed and saved!")))))))))
+
 
 (defun toolsearchtool--compute-all-similarities (queryvector)
   "Compute the cosine similarities between the query's vector and the tools'

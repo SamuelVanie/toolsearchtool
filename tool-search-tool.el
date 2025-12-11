@@ -75,6 +75,32 @@ Returns a value between -1 and 1, where 1 means identical direction."
   :type 'number
   :group 'toolsearchtool)
 
+
+(defun toolsearchtool--parse-embedding-response (buffer)
+  "Parse embedding response from BUFFER.
+Returns the embedding vector or nil on error."
+  (with-current-buffer buffer
+    (goto-char (point-min))
+    (if (search-forward "\n\n" nil t)
+        (condition-case err
+            (let* ((json-object-type 'plist)
+                   (json-array-type 'list)
+                   (response (json-read))
+                   (data (plist-get response :data))
+                   (first-item (car data))
+                   (embedding (plist-get first-item :embedding)))
+              (if embedding
+                  embedding
+                (progn
+                  (message "Response did not contain an embedding field")
+                  nil)))
+          (error
+           (message "Error parsing embedding response: %S" err)
+           nil))
+      (progn
+        (message "Invalid response headers")
+        nil))))
+
 (defun toolsearchtool--save-embeddings ()
   "Save embedding values to cache file."
   (when toolsearchtool--embedding-values
@@ -166,25 +192,9 @@ or with nil if the request fails. Shows progress messages in minibuffer."
                (progn
                  (message "Embedding request failed: %S" (plist-get status :error))
                  (funcall callback nil))
-             ;; Handle success case
-             (goto-char (point-min))
-             (if (search-forward "\n\n" nil t)
-                 (condition-case err
-                     (let* ((json-object-type 'plist)
-                            (json-array-type 'list)
-                            (response (json-read))
-                            (data (plist-get response :data))
-                            (first-item (car data))
-                            (embedding (plist-get first-item :embedding)))
-                       (if embedding
-                           (funcall callback embedding)
-                         (message "Response did not contain an embedding field")
-                         (funcall callback nil)))
-                   (error
-                    (message "Error parsing response: %S" err)
-                    (funcall callback nil)))
-               (message "Invalid response headers")
-               (funcall callback nil)))
+             ;; Handle success case by using the parser function
+             (let ((embedding (toolsearchtool--parse-embedding-response (current-buffer))))
+               (funcall callback embedding)))
          (kill-buffer (current-buffer)))))))
 
 
@@ -289,7 +299,6 @@ The tool structure is the one from `gptel--known-tools'"
    )
   )
 
-
 (defun toolsearchtool--default-select-tools (list)
   "Add tools to the list of tools to be used by the llm.
 This is the default gptel implementation that could be customized through the
@@ -333,26 +342,39 @@ This is the default gptel implementation. See the variable
   )
 
 
+
 (defun toolsearchtool--get-tools-suggestion (query)
   "Call the embedding model from the url defined by the user then calculate
 the cosine similarity to get the appropriate tools and return the
-appropriate tools to be selected for the query."
-
+appropriate tools to be selected for the query.
+This function uses url-retrieve-synchronously for a single query."
+  
   ;; Try to load cached embeddings first
   (unless toolsearchtool--embedding-values
     (unless (toolsearchtool--load-embeddings)
-      ;; If loading failed, compute them
-      (toolsearchtool-compute-all-embedding)))
+      (error "The embeddings for the tools are not yet computed, run the command
+toolsearchtool-compute-all-embedding first")))
+  
+  (let ((url-request-method "POST")
+        (url-request-extra-headers
+         '(("Content-Type" . "application/json")))
+        (url-request-data
+         (json-encode `((input . ,query)
+                        (model . ,toolsearchtool-embedding-model)))))
+    (let ((buffer (url-retrieve-synchronously toolsearchtool-embedding-endpoint)))
+      (if (not buffer)
+          (error "Failed to retrieve embedding: Connection failed")
+        (unwind-protect
+            (let ((query-vector (toolsearchtool--parse-embedding-response buffer)))
+              (unless query-vector
+                (error "Failed to parse embedding response"))
+              
+              ;; Compute the cosine similarities with the tools' vectors
+              (toolsearchtool--compute-all-similarities query-vector)
+              ;; Get the first n tools
+              (take toolsearchtool-number-of-results toolsearchtool--cosine-similarities))
+          (kill-buffer buffer))))))
 
-
-  ;; get the embedding for the user's query
-  ;; compute the cosine similarities with the tools' vectors
-  (toolsearchtool--compute-all-similarities (toolsearchtool--get-embedding query))
-
-  ;; get the first n tools
-  ;; n defined by a custom variable
-  (take toolsearchtool-number-of-results toolsearchtool--cosine-similarities)
-  )
 
 (gptel-make-tool
  :name "tool_search"
